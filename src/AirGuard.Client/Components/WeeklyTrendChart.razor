@@ -1,0 +1,162 @@
+@inject IJSRuntime JSRuntime
+
+<div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+    <canvas id="@ChartId"></canvas>
+</div>
+
+@code {
+    [Parameter]
+    public WeeklyTrendData? TrendData { get; set; }
+
+    private string ChartId { get; set; } = $"chart-{Guid.NewGuid()}";
+    private bool isChartInitialized = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || (!isChartInitialized && TrendData != null))
+        {
+            await RenderChart();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (isChartInitialized && TrendData != null)
+        {
+            await RenderChart();
+        }
+    }
+
+    private async Task RenderChart()
+    {
+        if (TrendData == null) return;
+
+        try
+        {
+            var chartConfig = new
+            {
+                type = "line",
+                data = new
+                {
+                    labels = TrendData.Labels,
+                    datasets = TrendData.Datasets
+                },
+                options = new
+                {
+                    responsive = true,
+                    maintainAspectRatio = false,
+                    plugins = new
+                    {
+                        legend = new
+                        {
+                            display = true,
+                            position = "top"
+                        },
+                        title = new
+                        {
+                            display = true,
+                            text = "Weekly AQI Trend by City"
+                        },
+                        tooltip = new
+                        {
+                            mode = "index",
+                            intersect = false
+                        }
+                    },
+                    scales = new
+                    {
+                        y = new
+                        {
+                            beginAtZero = true,
+                            title = new
+                            {
+                                display = true,
+                                text = "AQI Value"
+                            },
+                            ticks = new
+                            {
+                                callback = "##CALLBACK##"
+                            }
+                        },
+                        x = new
+                        {
+                            title = new
+                            {
+                                display = true,
+                                text = "Day of Week"
+                            }
+                        }
+                    }
+                }
+            };
+
+            var configJson = System.Text.Json.JsonSerializer.Serialize(chartConfig, new System.Text.Json.JsonSerializerOptions 
+            { 
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase 
+            });
+            
+            // Replace the callback placeholder with actual JavaScript function
+            configJson = configJson.Replace(
+                "\"##CALLBACK##\"",
+                @"function(value) {
+                    if (value <= 50) return value + ' (Good)';
+                    if (value <= 100) return value + ' (Moderate)';
+                    if (value <= 150) return value + ' (Unhealthy for Sensitive)';
+                    if (value <= 200) return value + ' (Unhealthy)';
+                    if (value <= 300) return value + ' (Very Unhealthy)';
+                    return value + ' (Hazardous)';
+                }"
+            );
+
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const ctx = document.getElementById('{ChartId}');
+                    if (!ctx) return;
+                    
+                    // Destroy existing chart if any
+                    if (window.chartInstances && window.chartInstances['{ChartId}']) {{
+                        window.chartInstances['{ChartId}'].destroy();
+                    }}
+                    
+                    // Create new chart
+                    if (!window.chartInstances) window.chartInstances = {{}};
+                    const config = {configJson};
+                    window.chartInstances['{ChartId}'] = new Chart(ctx, config);
+                }})();
+            ");
+
+            isChartInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering chart: {ex.Message}");
+        }
+    }
+
+    public class WeeklyTrendData
+    {
+        [JsonPropertyName("labels")]
+        public string[] Labels { get; set; } = Array.Empty<string>();
+        
+        [JsonPropertyName("datasets")]
+        public Dataset[] Datasets { get; set; } = Array.Empty<Dataset>();
+    }
+
+    public class Dataset
+    {
+        [JsonPropertyName("label")]
+        public string Label { get; set; } = "";
+        
+        [JsonPropertyName("data")]
+        public int[] Data { get; set; } = Array.Empty<int>();
+        
+        [JsonPropertyName("borderColor")]
+        public string BorderColor { get; set; } = "";
+        
+        [JsonPropertyName("backgroundColor")]
+        public string BackgroundColor { get; set; } = "";
+        
+        [JsonPropertyName("tension")]
+        public double Tension { get; set; } = 0.4;
+    }
+}

@@ -1,0 +1,67 @@
+@if (ShowAlert)
+{
+    <div class="alert alert-@AlertType alert-dismissible fade show" role="alert">
+        <div class="d-flex align-items-center">
+            <i class="@IconClass me-2"></i>
+            <div>
+                <strong>@AlertTitle</strong>
+                <div>@AlertMessage</div>
+                @if (AffectedCities.Any())
+                {
+                    <small class="text-muted">
+                        Affected areas: @string.Join(", ", AffectedCities.Take(3))
+                        @if (AffectedCities.Count > 3)
+                        {
+                            <text> and @(AffectedCities.Count - 3) more</text>
+                        }
+                    </small>
+                }
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@code {
+    [Parameter] public List<AirQualityDto> AirQualityData { get; set; } = new();
+    [Parameter] public double AlertThreshold { get; set; } = 101; // Unhealthy for Sensitive Groups
+
+    private bool ShowAlert => AffectedCities.Any();
+    private List<string> AffectedCities => AirQualityData
+        .Where(d => d.AQI >= AlertThreshold)
+        .Select(d => d.Location)
+        .ToList();
+
+    private string AlertType => GetMaxAqi() switch
+    {
+        <= 150 => "warning",
+        <= 200 => "danger",
+        _ => "danger"
+    };
+
+    private string IconClass => GetMaxAqi() switch
+    {
+        <= 150 => "fas fa-exclamation-triangle",
+        <= 200 => "fas fa-exclamation-circle",
+        _ => "fas fa-radiation"
+    };
+
+    private string AlertTitle => GetMaxAqi() switch
+    {
+        <= 150 => "Air Quality Alert",
+        <= 200 => "Health Warning",
+        _ => "Health Emergency"
+    };
+
+    private string AlertMessage => GetMaxAqi() switch
+    {
+        <= 150 => "Air quality is unhealthy for sensitive groups. Consider limiting outdoor activities if you have respiratory conditions.",
+        <= 200 => "Air quality is unhealthy for everyone. Reduce prolonged outdoor activities.",
+        <= 300 => "Air quality is very unhealthy. Avoid outdoor activities.",
+        _ => "Hazardous air quality conditions. Stay indoors and avoid all outdoor activities."
+    };
+
+    private double GetMaxAqi() => AffectedCities.Any() 
+        ? AirQualityData.Where(d => d.AQI >= AlertThreshold).Max(d => d.AQI ?? 0)
+        : 0;
+}

@@ -1,0 +1,334 @@
+@page "/reports"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<h3 class="mb-3">Air Quality Reports</h3>
+<p class="text-muted mb-4">Monthly and weekly trend snapshots generated from TEMPO and ground station data.</p>
+
+@if (!string.IsNullOrEmpty(downloadMessage))
+{
+    <div class="alert alert-info alert-dismissible fade show" role="alert">
+        @downloadMessage
+        <button type="button" class="btn-close" @onclick="() => downloadMessage = string.Empty"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(sendMessage))
+{
+    <div class="alert alert-@(sendSuccess ? "success" : "warning") alert-dismissible fade show" role="alert">
+        @sendMessage
+        <button type="button" class="btn-close" @onclick="() => sendMessage = string.Empty"></button>
+    </div>
+}
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+                <strong>Monthly Overview</strong>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="DownloadReport" disabled="@isDownloading">
+                        @if (isDownloading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        Download PDF
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" @onclick="ShowSendDialog" disabled="@isSending">
+                        @if (isSending)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        📧 Send to Authority
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">City</th>
+                                <th scope="col">Average AQI</th>
+                                <th scope="col">Best Day</th>
+                                <th scope="col">Worst Day</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var report in MonthlyReports)
+                            {
+                                <tr>
+                                    <td>@report.City</td>
+                                    <td>@report.AverageAqi</td>
+                                    <td>@report.BestDay</td>
+                                    <td class="text-danger">@report.WorstDay</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-transparent">
+                <strong>Weekly Trend</strong>
+            </div>
+            <div class="card-body">
+                @if (weeklyTrendData == null)
+                {
+                    <div class="d-flex justify-content-center align-items-center" style="height: 300px;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <WeeklyTrendChart TrendData="weeklyTrendData" />
+                }
+                <small class="text-muted mt-3 d-block text-center">
+                    Real-time AQI trends from TEMPO satellite and ground stations
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Send to Authority Modal -->
+@if (showSendDialog)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">📧 Send Report to Authority</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSendDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        <small>Select the government authority to receive this air quality report</small>
+                    </p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Authority / Agency</label>
+                        <select class="form-select" @bind="selectedAuthority">
+                            <option value="">-- Select Authority --</option>
+                            <option value="EPA - Environmental Protection Agency">EPA - Environmental Protection Agency</option>
+                            <option value="New York State DEC">New York State Department of Environmental Conservation</option>
+                            <option value="California Air Resources Board">California Air Resources Board</option>
+                            <option value="Toronto Public Health">Toronto Public Health (Canada)</option>
+                            <option value="Mexico City SEDEMA">Mexico City Environment Secretariat (SEDEMA)</option>
+                            <option value="Houston Health Department">Houston Health Department</option>
+                            <option value="Chicago Department of Public Health">Chicago Department of Public Health</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Report Period</label>
+                        <select class="form-select" @bind="selectedPeriod">
+                            <option value="monthly">Monthly Report</option>
+                            <option value="weekly">Weekly Summary</option>
+                            <option value="daily">Daily Alert</option>
+                        </select>
+                    </div>
+
+                    <div class="alert alert-info mb-0">
+                        <small>
+                            <strong>Demo Mode:</strong> This is a demonstration feature. In production, 
+                            reports would be sent via SMTP/SendGrid to official government email addresses.
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseSendDialog">Cancel</button>
+                    <button type="button" class="btn btn-success" @onclick="SendReportToAuthority" disabled="@(string.IsNullOrEmpty(selectedAuthority) || isSending)">
+                        @if (isSending)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        📤 Send Report
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string downloadMessage = "";
+    private string sendMessage = "";
+    private bool sendSuccess = false;
+    private bool isDownloading = false;
+    private bool isSending = false;
+    private bool showSendDialog = false;
+    private string selectedAuthority = "";
+    private string selectedPeriod = "monthly";
+    private WeeklyTrendChart.WeeklyTrendData? weeklyTrendData;
+
+    private IReadOnlyList<MonthlyReportRow> MonthlyReports { get; set; } = new List<MonthlyReportRow>
+    {
+        new("New York, NY", 62, "Sep 12", "Sep 23"),
+        new("Los Angeles, CA", 78, "Sep 4", "Sep 19"),
+        new("Toronto, ON", 54, "Sep 8", "Sep 21"),
+        new("Mexico City, MX", 85, "Sep 6", "Sep 27")
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadWeeklyTrendData();
+    }
+
+    private async Task LoadWeeklyTrendData()
+    {
+        try
+        {
+            var response = await Http.GetFromJsonAsync<WeeklyTrendChart.WeeklyTrendData>("api/reports/weekly-trend");
+            weeklyTrendData = response;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading weekly trend: {ex.Message}");
+            // Set default data on error
+            weeklyTrendData = new WeeklyTrendChart.WeeklyTrendData
+            {
+                Labels = new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" },
+                Datasets = new[]
+                {
+                    new WeeklyTrendChart.Dataset
+                    {
+                        Label = "Loading...",
+                        Data = new[] { 0, 0, 0, 0, 0, 0, 0 },
+                        BorderColor = "rgb(200, 200, 200)",
+                        BackgroundColor = "rgba(200, 200, 200, 0.2)"
+                    }
+                }
+            };
+        }
+    }
+
+    private async Task DownloadReport()
+    {
+        if (isDownloading) return;
+        
+        isDownloading = true;
+        downloadMessage = "📥 Generating report...";
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.GetAsync("api/reports/monthly-pdf");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsByteArrayAsync();
+                var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"') 
+                    ?? $"AirGuard_Report_{DateTime.Now:yyyyMMdd}.pdf";
+                
+                // Trigger download via JavaScript
+                await DownloadFileFromBytes(fileName, content);
+                
+                downloadMessage = "✅ Report downloaded successfully!";
+            }
+            else
+            {
+                downloadMessage = "❌ Failed to generate report. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            downloadMessage = $"❌ Error: {ex.Message}";
+        }
+        finally
+        {
+            isDownloading = false;
+            StateHasChanged();
+            
+            _ = Task.Delay(3000).ContinueWith(_ => 
+            {
+                downloadMessage = "";
+                InvokeAsync(StateHasChanged);
+            });
+        }
+    }
+
+    private void ShowSendDialog()
+    {
+        showSendDialog = true;
+        selectedAuthority = "";
+        selectedPeriod = "monthly";
+    }
+
+    private void CloseSendDialog()
+    {
+        showSendDialog = false;
+    }
+
+    private async Task SendReportToAuthority()
+    {
+        if (string.IsNullOrEmpty(selectedAuthority))
+            return;
+
+        isSending = true;
+        sendMessage = "📤 Preparing and sending report...";
+        sendSuccess = false;
+        StateHasChanged();
+
+        try
+        {
+            // Simulate sending delay (Demo mode)
+            await Task.Delay(2000);
+
+            // In production, this would call an API endpoint:
+            // await Http.PostAsJsonAsync("api/reports/send-email", new { 
+            //     Authority = selectedAuthority, 
+            //     Period = selectedPeriod,
+            //     ReportData = MonthlyReports 
+            // });
+
+            sendSuccess = true;
+            sendMessage = $"✅ Report successfully sent to {selectedAuthority}! (Demo Mode)";
+            
+            // Close dialog
+            showSendDialog = false;
+            
+            // Auto-dismiss after 5 seconds
+            _ = Task.Delay(5000).ContinueWith(_ => 
+            {
+                sendMessage = "";
+                InvokeAsync(StateHasChanged);
+            });
+        }
+        catch (Exception ex)
+        {
+            sendSuccess = false;
+            sendMessage = $"❌ Failed to send report: {ex.Message}";
+        }
+        finally
+        {
+            isSending = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadFileFromBytes(string fileName, byte[] content)
+    {
+        // Create a data URL from the byte array and trigger download
+        var base64 = Convert.ToBase64String(content);
+        var dataUrl = $"data:application/pdf;base64,{base64}";
+        
+        // Use JavaScript to trigger the download
+        await JSRuntime.InvokeVoidAsync("eval", 
+            $@"(() => {{
+                const link = document.createElement('a');
+                link.href = '{dataUrl}';
+                link.download = '{fileName}';
+                link.click();
+            }})()");
+    }
+
+    private record MonthlyReportRow(string City, int AverageAqi, string BestDay, string WorstDay);
+}

@@ -1,0 +1,45 @@
+@page "/simple"
+@inject HttpClient Http
+
+<h3>Simple Dashboard Test</h3>
+<p>Testing basic functionality without complex features</p>
+
+@if (isLoading)
+{
+    <p>Loading...</p>
+}
+else if (current != null)
+{
+    <div class="card">
+        <div class="card-body">
+            <h5>@current.Location</h5>
+            <p>PM2.5: @current.Pm25 µg/m³</p>
+            <p>Status: @current.Status</p>
+        </div>
+    </div>
+}
+else
+{
+    <p>No data available</p>
+}
+
+@code {
+    private AirQualityDto? current;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            current = await Http.GetFromJsonAsync<AirQualityDto>("api/airquality/current?location=New York");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

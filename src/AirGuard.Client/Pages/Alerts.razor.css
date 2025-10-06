@@ -1,0 +1,22 @@
+.alerts-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.alert-card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 10px 30px rgba(31, 41, 55, 0.08);
+    border-left-width: 5px !important;
+}
+
+.alert-header strong {
+    font-size: 1.05rem;
+}
+
+.alert-meta {
+    font-size: 0.85rem;
+    margin: 0.35rem 0 0.6rem;
+}

@@ -1,0 +1,180 @@
+@page "/map"
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<h3>Air Quality Map - TEMPO Coverage</h3>
+<p class="text-muted">Real-time air quality data across North America from TEMPO satellite coverage area.</p>
+
+<div class="aqi-legend">
+    <span><span class="legend-color" style="background-color:#00E676;"></span> Good (0-50)</span>
+    <span><span class="legend-color" style="background-color:#FFD600;"></span> Moderate (51-100)</span>
+    <span><span class="legend-color" style="background-color:#FF9100;"></span> Unhealthy for Sensitive Groups (101-150)</span>
+    <span><span class="legend-color" style="background-color:#F44336;"></span> Unhealthy (151-200)</span>
+    <span><span class="legend-color" style="background-color:#8E24AA;"></span> Very Unhealthy (201-300)</span>
+    <span><span class="legend-color" style="background-color:#6D4C41;"></span> Hazardous (301+)</span>
+</div>
+
+<div class="mb-3">
+    <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" id="showCore" @bind="showCore" @bind:after="FilterCities">
+        <label class="form-check-label" for="showCore">Core Cities</label>
+    </div>
+    <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" id="showCanada" @bind="showCanada" @bind:after="FilterCities">
+        <label class="form-check-label" for="showCanada">Canada</label>
+    </div>
+    <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" id="showMexico" @bind="showMexico" @bind:after="FilterCities">
+        <label class="form-check-label" for="showMexico">Mexico</label>
+    </div>
+</div>
+
+<div style="position:relative;">
+    @if (isLoading)
+    {
+        <div class="map-loading-overlay">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading air quality data...</p>
+        </div>
+    }
+    <div id="map" style="height:520px;border-radius:12px;"></div>
+</div>
+
+@code {
+    record TempoCityPoint(string Name, double Lat, double Lon, string Priority, string Region, string RiskType, double? AQI, string? Category, string? Color);
+
+    private List<TempoCityPoint> allCities = new();
+    private List<TempoCityPoint> filteredCities = new();
+    private IJSObjectReference? mapRef;
+    private bool showCore = true;
+    private bool showCanada = true;
+    private bool showMexico = true;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+        try
+        {
+            // Load TEMPO cities configuration
+            var tempoConfigUri = new Uri(new Uri(Navigation.BaseUri), "data/tempo-cities.json");
+            var tempoConfig = await Http.GetFromJsonAsync<JsonElement[]>(tempoConfigUri);
+            if (tempoConfig is null) return;
+
+            var selectedCities = tempoConfig.Take(20).ToArray();
+            var cityNames = selectedCities
+                .Select(c => c.GetProperty("name").GetString())
+                .Where(n => n is not null)
+                .ToArray();
+
+            var bulkUrl = $"api/airquality/bulk?{string.Join("&", cityNames.Select(c => $"cities={Uri.EscapeDataString(c!)}"))}";
+            var aqiData = await Http.GetFromJsonAsync<AirQualityDto[]>(bulkUrl);
+
+            for (int i = 0; i < selectedCities.Length; i++)
+            {
+                var city = selectedCities[i];
+                var name = city.GetProperty("name").GetString()!;
+                var data = aqiData?.FirstOrDefault(d => d.Location == name);
+
+                var aqi = data?.AQI ?? 0;
+                var color = GetAqiColor(aqi);
+
+                allCities.Add(new TempoCityPoint(
+                    name,
+                    city.GetProperty("lat").GetDouble(),
+                    city.GetProperty("lon").GetDouble(),
+                    city.GetProperty("priority").GetString()!,
+                    city.GetProperty("region").GetString()!,
+                    city.GetProperty("riskType").GetString()!,
+                    aqi,
+                    data?.Category,
+                    color
+                ));
+            }
+
+            FilterCities();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading TEMPO cities: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void FilterCities()
+    {
+        filteredCities = allCities.Where(c =>
+            (showCore && c.Region != "canada" && c.Region != "mexico") ||
+            (showCanada && c.Region == "canada") ||
+            (showMexico && c.Region == "mexico")
+        ).ToList();
+
+        StateHasChanged();
+        _ = InvokeAsync(RenderMarkersAsync);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            mapRef = await JS.InvokeAsync<IJSObjectReference>("airGuardMap.init", "map", 39.5, -98.35, 4);
+            await RenderMarkersAsync();
+        }
+    }
+
+    private async Task RenderMarkersAsync()
+    {
+        if (mapRef is null) return;
+
+        await JS.InvokeVoidAsync("airGuardMap.clearMarkers", mapRef);
+
+        foreach (var city in filteredCities)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync(
+                    "airGuardMap.addColoredCityMarker",
+                    mapRef,
+                    city.Name,
+                    city.AQI ?? 0,
+                    city.Lat,
+                    city.Lon,
+                    city.Color,
+                    city.Category,
+                    city.RiskType);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Map city error: {city.Name} -> {ex.Message}");
+            }
+        }
+    }
+
+    private string GetAqiColor(double aqi)
+    {
+        return aqi switch
+        {
+            <= 50 => "#00E676",    // Green - Good
+            <= 100 => "#FFD600",   // Yellow - Moderate
+            <= 150 => "#FF9100",   // Orange - Unhealthy for Sensitive Groups
+            <= 200 => "#F44336",   // Red - Unhealthy
+            <= 300 => "#8E24AA",   // Purple - Very Unhealthy
+            _ => "#6D4C41"         // Brown - Hazardous
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (mapRef is not null)
+        {
+            await mapRef.DisposeAsync();
+        }
+    }
+}

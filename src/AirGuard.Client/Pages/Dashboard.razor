@@ -1,0 +1,336 @@
+@page "/dashboard"
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<h3>EcoTasks AirGuard – Air Quality Monitor</h3>
+<p><em>Real-time air quality monitoring across North America using NASA TEMPO satellite coverage</em></p>
+
+@if (recentData.Any(d => (d.AQI ?? 0) >= 101))
+{
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <strong>Air Quality Alert:</strong> Some areas have unhealthy air. Consider limiting outdoor activities.
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="mb-3">
+    <label for="citySelect" class="form-label">Select City:</label>
+    <select id="citySelect" class="form-select" @bind="selectedCity" @bind:after="OnCityChangedAsync">
+        @foreach (var city in availableCities)
+        {
+            <option value="@city.Name">@city.Name (@city.Region.ToUpperInvariant())</option>
+        }
+    </select>
+</div>
+
+@if (isLoading)
+{
+    <div class="alert alert-secondary">Loading air quality data... @currentAttemptText</div>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-danger">
+        <strong>Failed to load data.</strong> @loadError
+        <div class="mt-2">
+            <button class="btn btn-sm btn-outline-danger" @onclick="RetryLastCityLoad" disabled="@isLoading">Retry</button>
+        </div>
+    </div>
+}
+else if (current is null)
+{
+    <div class="alert alert-warning">No data available for the selected city.</div>
+}
+else
+{
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5>Current Air Quality - @current.Location</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <strong>PM2.5:</strong> @Math.Round(current.Pm25, 1) µg/m³
+                </div>
+                <div class="col-md-3">
+                    <strong>NO₂:</strong> @Math.Round(current.No2, 1) µg/m³
+                </div>
+                <div class="col-md-3">
+                    <strong>O₃:</strong> @Math.Round(current.O3, 1) µg/m³
+                </div>
+                <div class="col-md-3">
+                    <strong>Status:</strong>
+                    <span style="color:@(current.Status == "Good" ? "#00E400" : current.Status == "Moderate" ? "#FF7E00" : "#FF0000")">
+                        <b>@current.Status</b>
+                    </span>
+                </div>
+            </div>
+
+            @if (current.AQI is not null)
+            {
+                <div class="mt-2">
+                    <strong>AQI Index:</strong> @current.AQI
+                    <br />
+                    <strong>Category:</strong>
+                    <span style="color:@GetAqiCategoryColor(current.Category)">
+                        <b>@current.Category</b>
+                    </span>
+                </div>
+            }
+
+            <div class="mt-2">
+                <strong>Temperature:</strong> @(current.TempC.HasValue ? $"{Math.Round(current.TempC.Value, 1)}°C" : "N/A")
+                &nbsp;•&nbsp;
+                <strong>Wind:</strong> @(current.WindMs.HasValue ? $"{Math.Round(current.WindMs.Value, 1)} m/s" : "N/A")
+            </div>
+
+            <small class="text-muted d-block mt-2">Last updated: @current.TimestampUtc.ToString("yyyy-MM-dd HH:mm") UTC</small>
+        </div>
+    </div>
+}
+
+<div class="d-flex justify-content-between align-items-center mb-2 mt-4">
+    <h4 class="mt-2">Next 12h PM2.5 Forecast</h4>
+    <button class="btn btn-outline-primary btn-sm d-flex align-items-center"
+            disabled="@isLoading"
+            @onclick="RefreshData">
+        @if (isLoading)
+        {
+            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+            <span>Refreshing...</span>
+        }
+        else
+        {
+            <span>🔄 Refresh Data</span>
+        }
+    </button>
+</div>
+
+@if (forecast is null && !isLoading && loadError is null)
+{
+    <p>Loading forecast…</p>
+}
+else if (forecast is not null)
+{
+    <canvas id="pmChart" width="400" height="180"></canvas>
+
+    <table class="table table-striped mt-3">
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>PM2.5 (µg/m³)</th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var p in forecast.Points)
+        {
+            <tr>
+                <td>@p.TimestampUtc.ToString("MM/dd HH:mm")</td>
+                <td>@Math.Round(p.Pm25, 1)</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+@code {
+    // ----- Models / State -----
+    private record TempoCity(string Name, string Region, string Priority, string RiskType);
+
+    AirQualityDto? current;
+    AirQualityForecast? forecast;
+
+    private string selectedCity = "New York, USA";
+    private List<TempoCity> availableCities = new();
+    private List<AirQualityDto> recentData = new();
+    bool isLoading = false;
+
+    // resiliency state
+    private string? lastRequestedCity;
+    private string? loadError;
+    private int attempt;
+    private const int MaxAttempts = 3;
+    private CancellationTokenSource? cts;
+    private string currentAttemptText => attempt > 1 ? $"(attempt {attempt}/{MaxAttempts})" : string.Empty;
+
+    // configuration
+    private static readonly TimeSpan PerRequestTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan BaseRetryDelay = TimeSpan.FromMilliseconds(500);
+
+    // ----- Lifecycle -----
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTempoCities();
+        await LoadDataForCity(selectedCity);
+        await LoadRecentData();
+    }
+
+    // ----- Data Loading -----
+    private async Task LoadTempoCities()
+    {
+        try
+        {
+            // from wwwroot/data/tempo-cities.json
+            var tempoConfigUri = new Uri(new Uri(Navigation.BaseUri), "data/tempo-cities.json");
+            var tempoConfig = await Http.GetFromJsonAsync<JsonElement[]>(tempoConfigUri);
+            if (tempoConfig is not null)
+            {
+                availableCities = tempoConfig
+                    .Select(c => new TempoCity(
+                        c.GetProperty("name").GetString()!,
+                        c.GetProperty("region").GetString()!,
+                        c.GetProperty("priority").GetString()!,
+                        c.GetProperty("riskType").GetString()!
+                    ))
+                    .ToList();
+
+                // If New York is not included, use the first entry as the default city
+                if (!availableCities.Any(c => c.Name == selectedCity) && availableCities.Count > 0)
+                    selectedCity = availableCities[0].Name;
+            }
+            else
+            {
+                FallbackCities();
+            }
+        }
+        catch
+        {
+            FallbackCities();
+        }
+
+        void FallbackCities()
+        {
+            availableCities = new List<TempoCity>
+            {
+                new("New York, USA", "northeast", "core", "ozone"),
+                new("Los Angeles, USA", "west", "core", "ozone"),
+                new("Chicago, USA", "midwest", "core", "ozone"),
+                new("Houston, USA", "south", "core", "ozone"),
+                new("Phoenix, USA", "west", "core", "dust"),
+                new("Atlanta, USA", "southeast", "core", "ozone"),
+                new("Seattle, USA", "west", "core", "wildfire"),
+                new("Denver, USA", "west", "core", "ozone"),
+                new("Washington, USA", "northeast", "core", "ozone"),
+                new("Toronto, Canada", "canada", "core", "ozone"),
+                new("Vancouver, Canada", "canada", "core", "wildfire"),
+                new("Montreal, Canada", "canada", "core", "ozone"),
+                new("Mexico City, Mexico", "mexico", "core", "ozone"),
+                new("Monterrey, Mexico", "mexico", "core", "dust")
+            };
+        }
+    }
+
+    private async Task LoadRecentData()
+    {
+        try
+        {
+            var cityNames = availableCities.Take(10).Select(c => c.Name).ToArray();
+            var qs = string.Join("&", cityNames.Select(c => $"cities={Uri.EscapeDataString(c)}"));
+            var bulkUrl = $"api/airquality/bulk?{qs}";
+            var bulkData = await Http.GetFromJsonAsync<AirQualityDto[]>(bulkUrl);
+            recentData = bulkData?.ToList() ?? new List<AirQualityDto>();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading recent data: {ex.Message}");
+        }
+    }
+
+    private async Task OnCityChangedAsync() => await LoadDataForCity(selectedCity);
+
+    private async Task RetryLastCityLoad()
+    {
+        if (lastRequestedCity is not null)
+        {
+            await LoadDataForCity(lastRequestedCity, forceResetAttempts: true);
+        }
+    }
+
+    private async Task LoadDataForCity(string city, bool forceResetAttempts = false)
+    {
+        lastRequestedCity = city;
+        if (forceResetAttempts)
+            attempt = 0;
+
+        attempt++;
+        isLoading = true;
+        loadError = null;
+        current = null;
+        forecast = null;
+        cts?.Cancel();
+        cts = new CancellationTokenSource();
+        StateHasChanged();
+
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+            linkedCts.CancelAfter(PerRequestTimeout);
+
+            current  = await Http.GetFromJsonAsync<AirQualityDto>($"api/airquality/current?location={Uri.EscapeDataString(city)}", linkedCts.Token);
+            forecast = await Http.GetFromJsonAsync<AirQualityForecast>($"api/airquality/forecast?location={Uri.EscapeDataString(city)}", linkedCts.Token);
+            StateHasChanged();
+
+            if (forecast is not null)
+            {
+                var labels = forecast.Points.Select(p => p.TimestampUtc.ToString("HH:mm")).ToArray();
+                var values = forecast.Points.Select(p => p.Pm25).ToArray();
+                await JS.InvokeVoidAsync("airGuardCharts.renderForecast", "pmChart", labels, values);
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            loadError = "Request cancelled.";
+        }
+        catch (OperationCanceledException)
+        {
+            loadError = "Request timed out.";
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Error loading data: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        // perform retry after finally so we can safely return
+        if (loadError is not null && attempt < MaxAttempts)
+        {
+            var delay = TimeSpan.FromMilliseconds(BaseRetryDelay.TotalMilliseconds * Math.Pow(2, attempt - 1));
+            await Task.Delay(delay);
+            await LoadDataForCity(city);
+            return;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        StateHasChanged();
+        try
+        {
+            await LoadDataForCity(selectedCity, forceResetAttempts: true);
+            await LoadRecentData();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ----- Helpers -----
+    private string GetAqiCategoryColor(string? category) => category switch
+    {
+        "Good" => "#00E676",
+        "Moderate" => "#FFD600",
+        "Unhealthy for Sensitive Groups" => "#FF9100",
+        "Unhealthy" => "#F44336",
+        "Very Unhealthy" => "#8E24AA",
+        "Hazardous" => "#6D4C41",
+        _ => "#666666"
+    };
+}

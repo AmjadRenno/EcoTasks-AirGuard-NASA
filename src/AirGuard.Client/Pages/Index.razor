@@ -1,0 +1,143 @@
+@page "/"
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>EcoTasks AirGuard – Onboarding</PageTitle>
+
+<h2 class="mb-2">EcoTasks AirGuard – Real-Time Air Quality Monitor</h2>
+<p class="text-muted">
+    Monitoring air pollution across North America using NASA’s TEMPO satellite data, ground stations, and weather forecasts.
+</p>
+
+<div class="alert alert-info d-flex flex-column flex-lg-row gap-3 justify-content-between align-items-lg-center shadow-sm">
+    <div>
+        <strong>Get started</strong> — choose your city, enable location & alerts, then head to the Dashboard.
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="EnableLocation">Enable Location</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="EnableNotifications">Enable Alerts</button>
+        <button class="btn btn-primary btn-sm" @onclick="@(() => Nav.NavigateTo("/dashboard"))">Start Monitoring</button>
+    </div>
+</div>
+
+<!-- AQI Guide -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-transparent"><strong>AQI Guide &amp; Health Recommendations</strong></div>
+    <div class="card-body">
+        <div class="row row-cols-1 row-cols-md-3 g-3">
+            @foreach (var g in aqiGuide)
+            {
+                <div class="col">
+                    <div class="p-3 border rounded-3 h-100" style="background:@g.Bg">
+                        <div class="d-flex justify-content-between mb-1">
+                            <strong>@g.Name</strong>
+                            <span class="text-muted small">@g.Range</span>
+                        </div>
+                        <small class="text-muted d-block">@g.Advice</small>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- System Status -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <strong>System Status</strong>
+        <button class="btn btn-sm btn-outline-primary" @onclick="CheckStatus" disabled="@statusLoading">
+            @(statusLoading ? "Checking…" : "Refresh")
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4 col-sm-6">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="small text-muted">API</div>
+                    <div class="fs-6 fw-semibold">@apiStatus</div>
+                </div>
+            </div>
+            <div class="col-md-4 col-sm-6">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="small text-muted">Last Data Check</div>
+                    <div class="fs-6">@lastCheck</div>
+                    <small class="text-muted">@sampleCity</small>
+                </div>
+            </div>
+            <div class="col-md-4 col-sm-6">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="small text-muted">Latency (ms)</div>
+                    <div class="fs-6">@latencyMs</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- What's New -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-transparent"><strong>What’s New</strong></div>
+    <div class="card-body small">
+        <ul class="mb-0">
+            <li>New <em>Alerts</em> page with AQI severity filters and live cards.</li>
+            <li>Docker Compose healthcheck + automatic client wait on healthy API.</li>
+            <li>Monthly PDF report endpoint exposed and linked to Reports page.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Credits -->
+<div class="text-muted small mb-5">
+    Built for <strong>NASA Space Apps – TEMPO</strong>. Data sources: TEMPO-derived products, ground AQ stations, and weather feeds.
+    Map © OpenStreetMap contributors. Stack: .NET 8, Blazor WebAssembly, Bootstrap, Leaflet.
+</div>
+
+@code {
+    string apiStatus = "Checking…";
+    string lastCheck = "-";
+    string latencyMs = "-";
+    string sampleCity = "New York, USA";
+    bool statusLoading = false;
+
+    record AqiRow(string Name, string Range, string Bg, string Advice);
+    readonly List<AqiRow> aqiGuide = new()
+    {
+        new("Good", "0–50", "#e8f5e9", "Air quality is satisfactory."),
+        new("Moderate", "51–100", "#fff9e6", "Sensitive individuals should consider limiting prolonged outdoor exertion."),
+        new("Unhealthy for Sensitive Groups", "101–150", "#ffedd5", "Children, elderly, and those with respiratory issues should reduce outdoor activity."),
+        new("Unhealthy", "151–200", "#ffe4e6", "Everyone may begin to experience health effects; reduce outdoor exertion."),
+        new("Very Unhealthy", "201–300", "#fde2e4", "Health alert: avoid outdoor activities."),
+        new("Hazardous", "301+", "#f8d7da", "Serious health effects: stay indoors with clean air if possible."),
+    };
+
+    protected override async Task OnInitializedAsync() => await CheckStatus();
+
+    async Task CheckStatus()
+    {
+        statusLoading = true;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var health = await Http.GetStringAsync("health");
+            sw.Stop();
+            apiStatus = health.Contains("Healthy", StringComparison.OrdinalIgnoreCase) ? "Healthy" : health;
+            latencyMs = sw.ElapsedMilliseconds.ToString();
+            var sample = await Http.GetAsync($"api/AirQuality/current?location={Uri.EscapeDataString(sampleCity)}");
+            lastCheck = sample.IsSuccessStatusCode ? DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'") : "Error";
+        }
+        catch (Exception ex)
+        {
+            apiStatus = "Unavailable";
+            lastCheck = ex.Message;
+            latencyMs = "-";
+        }
+        finally
+        {
+            statusLoading = false;
+        }
+    }
+
+    async Task EnableLocation() => await JS.InvokeVoidAsync("app.getLocationAndStore");
+    async Task EnableNotifications() => await JS.InvokeVoidAsync("app.requestNotifications");
+}

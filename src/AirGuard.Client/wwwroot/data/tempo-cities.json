@@ -1,0 +1,114 @@
+[
+  {
+    "name": "New York, USA",
+    "lat": 40.7128,
+    "lon": -74.0060,
+    "priority": "core",
+    "region": "northeast",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Los Angeles, USA",
+    "lat": 34.0522,
+    "lon": -118.2437,
+    "priority": "core",
+    "region": "west",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Chicago, USA",
+    "lat": 41.8781,
+    "lon": -87.6298,
+    "priority": "core",
+    "region": "midwest",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Houston, USA",
+    "lat": 29.7604,
+    "lon": -95.3698,
+    "priority": "core",
+    "region": "south",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Phoenix, USA",
+    "lat": 33.4484,
+    "lon": -112.0740,
+    "priority": "core",
+    "region": "west",
+    "riskType": "dust"
+  },
+  {
+    "name": "Atlanta, USA",
+    "lat": 33.7490,
+    "lon": -84.3880,
+    "priority": "core",
+    "region": "southeast",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Seattle, USA",
+    "lat": 47.6062,
+    "lon": -122.3321,
+    "priority": "core",
+    "region": "west",
+    "riskType": "wildfire"
+  },
+  {
+    "name": "Denver, USA",
+    "lat": 39.7392,
+    "lon": -104.9903,
+    "priority": "core",
+    "region": "west",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Washington, USA",
+    "lat": 38.9072,
+    "lon": -77.0369,
+    "priority": "core",
+    "region": "northeast",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Toronto, Canada",
+    "lat": 43.65107,
+    "lon": -79.347015,
+    "priority": "core",
+    "region": "canada",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Vancouver, Canada",
+    "lat": 49.2827,
+    "lon": -123.1207,
+    "priority": "core",
+    "region": "canada",
+    "riskType": "wildfire"
+  },
+  {
+    "name": "Montreal, Canada",
+    "lat": 45.5017,
+    "lon": -73.5673,
+    "priority": "core",
+    "region": "canada",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Mexico City, Mexico",
+    "lat": 19.4326,
+    "lon": -99.1332,
+    "priority": "core",
+    "region": "mexico",
+    "riskType": "ozone"
+  },
+  {
+    "name": "Monterrey, Mexico",
+    "lat": 25.6866,
+    "lon": -100.3161,
+    "priority": "core",
+    "region": "mexico",
+    "riskType": "dust"
+  }
+]

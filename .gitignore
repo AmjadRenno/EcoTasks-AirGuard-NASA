@@ -1,0 +1,35 @@
+bin/
+obj/
+.vscode/
+*.user
+*.suo
+*.log
+*.DS_Store
+*.csproj.user
+
+# Visual Studio files
+.vs/
+*.sln.docstates
+*.userprefs
+
+# Docker
+.env
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Coverage / analysis
+coverage/
+TestResults/
+*.coverage
+*.coveragexml
+
+# Build artifacts
+/dist/
+/node_modules/

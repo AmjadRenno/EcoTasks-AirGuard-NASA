@@ -1,0 +1,15 @@
+@AirGuard.Server_HostAddress = https://localhost:7088
+
+### Health Check
+GET {{AirGuard.Server_HostAddress}}/health
+Accept: application/json
+
+### Air Quality - Los Angeles  
+GET {{AirGuard.Server_HostAddress}}/api/airquality/la
+Accept: application/json
+
+### Weather Forecast - Los Angeles
+GET {{AirGuard.Server_HostAddress}}/api/airquality/forecast/la
+Accept: application/json
+
+###

@@ -1,0 +1,30 @@
+@code {
+    [Parameter] public string? Category { get; set; } // "Good", "Moderate", ...
+    [Parameter] public double? Aqi { get; set; }
+
+    string Bg => Category switch {
+        "Good" => "#e6ffed",
+        "Moderate" => "#fff4e5",
+        "Unhealthy for Sensitive Groups" => "#ffe8e8",
+        "Unhealthy" => "#ffd6d6",
+        "Very Unhealthy" => "#f4d2ff",
+        "Hazardous" => "#ffcccc",
+        _ => "#eef2f7"
+    };
+
+    string Tip => Category switch {
+        "Good" => "Air quality is good. Great time for outdoor activities.",
+        "Moderate" => "Moderate. Sensitive groups should limit prolonged exertion.",
+        "Unhealthy for Sensitive Groups" => "Consider wearing a mask outdoors if you're sensitive.",
+        "Unhealthy" => "Reduce outdoor exertion. Keep windows closed.",
+        "Very Unhealthy" => "Avoid outdoor activities. Use air purifiers if possible.",
+        "Hazardous" => "Stay indoors. Follow local health advisories.",
+        _ => "Fetching conditions..."
+    };
+}
+
+<div style="background:@Bg;border-radius:10px;padding:12px 16px;margin:10px 0;">
+    <b>@(Category ?? "Unknown")</b>
+    @if (Aqi is not null) { <span>(AQI @Aqi)</span> }
+    <div class="text-muted">@Tip</div>
+</div>

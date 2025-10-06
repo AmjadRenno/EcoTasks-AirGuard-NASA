@@ -1,0 +1,48 @@
+services:
+  # Backend API Service
+  airguard-api:
+    container_name: airguard-api
+    build: 
+      context: ..
+      dockerfile: src/AirGuard.Server/Dockerfile
+    ports: 
+      - "5100:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_ENVIRONMENT=Development
+      - CORS__AllowedOrigins=http://localhost:5188,https://localhost:5188
+      - OpenWeather__ApiKey=${OpenWeather__ApiKey}
+      - AirNow__ApiKey=${AirNow__ApiKey}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - outbox:/app/Outbox
+    networks:
+      - airguard-network
+  
+  # Blazor WebAssembly Client
+  airguard-client:
+    container_name: airguard-client
+    build:
+      context: ..
+      dockerfile: src/AirGuard.Client/Dockerfile
+    ports:
+      - "5188:80"
+    environment:
+      - API_BASE_URL=http://localhost:5100/
+    depends_on:
+      airguard-api:
+        condition: service_healthy
+    networks:
+      - airguard-network
+
+networks:
+  airguard-network:
+    driver: bridge
+
+volumes:
+  outbox:

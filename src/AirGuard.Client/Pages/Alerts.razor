@@ -1,0 +1,97 @@
+@page "/alerts"
+
+<h3 class="mb-2">Live Air Quality Alerts</h3>
+<p class="text-muted mb-3">Cities reporting unhealthy (AQI &gt; 150) or very unhealthy (AQI &gt; 200) conditions over the last 48 hours.</p>
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <div class="btn-group" role="group" aria-label="Severity filter">
+        <button class="btn btn-sm @(IsActiveFilter(AlertFilter.All))" @onclick="() => SetFilter(AlertFilter.All)">All</button>
+        <button class="btn btn-sm @(IsActiveFilter(AlertFilter.Unhealthy))" @onclick="() => SetFilter(AlertFilter.Unhealthy)">Unhealthy 150–200</button>
+        <button class="btn btn-sm @(IsActiveFilter(AlertFilter.VeryUnhealthy))" @onclick="() => SetFilter(AlertFilter.VeryUnhealthy)">Very Unhealthy 200–300</button>
+    </div>
+    <button class="btn btn-outline-primary btn-sm ms-auto" @onclick="RefreshAlerts">Refresh</button>
+</div>
+
+<div class="alerts-grid">
+    @foreach (var alert in FilteredAlerts)
+    {
+        var bg = GetBackground(alert.Aqi);
+        <div class="alert-card border-start" style="border-left-color:@alert.Color; background:@bg">
+            <div class="alert-header d-flex justify-content-between align-items-center">
+                <strong>@alert.City</strong>
+                <span class="badge bg-dark-subtle text-dark">@alert.Aqi</span>
+            </div>
+            <div class="alert-meta text-muted">
+                <span class="me-2"><span class="oi oi-clock"></span> @alert.Timestamp.ToString("MMM dd, HH:mm")</span>
+                <span><span class="oi oi-warning"></span> @alert.Category</span>
+            </div>
+            <p class="mb-0 small text-body-secondary">Primary pollutant: @alert.Pollutant</p>
+        </div>
+    }
+    @if (!FilteredAlerts.Any())
+    {
+        <div class="text-muted">No alerts match this filter.</div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<AlertEvent> AllAlerts { get; set; } = new List<AlertEvent>
+    {
+        new("Phoenix, AZ", 182, "Unhealthy", "Ozone", DateTime.UtcNow.AddHours(-2), "#F44336"),
+        new("Houston, TX", 205, "Very Unhealthy", "PM2.5", DateTime.UtcNow.AddHours(-5), "#8E24AA"),
+        new("Mexico City, MX", 232, "Very Unhealthy", "PM10", DateTime.UtcNow.AddHours(-9), "#8E24AA"),
+        new("Los Angeles, CA", 161, "Unhealthy", "PM2.5", DateTime.UtcNow.AddHours(-15), "#F44336")
+    };
+
+    private List<AlertEvent> FilteredAlerts { get; set; } = new();
+
+    private AlertFilter CurrentFilter { get; set; } = AlertFilter.All;
+
+    protected override void OnInitialized()
+    {
+        ApplyFilter();
+    }
+
+    private void SetFilter(AlertFilter filter)
+    {
+        if (CurrentFilter != filter)
+        {
+            CurrentFilter = filter;
+            ApplyFilter();
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        FilteredAlerts = CurrentFilter switch
+        {
+            AlertFilter.Unhealthy => AllAlerts.Where(a => a.Aqi >= 150 && a.Aqi < 200).ToList(),
+            AlertFilter.VeryUnhealthy => AllAlerts.Where(a => a.Aqi >= 200 && a.Aqi < 300).ToList(),
+            _ => AllAlerts.ToList()
+        };
+        StateHasChanged();
+    }
+
+    private string IsActiveFilter(AlertFilter filter) => CurrentFilter == filter ? "btn-primary" : "btn-outline-secondary";
+
+    private string GetBackground(int aqi)
+    {
+        if (aqi < 100) return "linear-gradient(135deg, #e6f9e6, #ccf2cc)"; // Light green
+        if (aqi < 150) return "linear-gradient(135deg, #fff9d6, #fff3b0)"; // Yellow
+        if (aqi >= 200) return "linear-gradient(135deg, #ffe5e5, #ffcccc)"; // Pale red
+        // 150–199 (Unhealthy) keep existing white card but could add subtle orange if desired
+        return "linear-gradient(135deg, #ffeee0, #ffd8b3)"; // Soft orange
+    }
+
+    private Task RefreshAlerts()
+    {
+        // Placeholder: later can refetch from API.
+        // For now just re-apply filter (simulate refresh timestamp update or randomization if needed).
+        ApplyFilter();
+        return Task.CompletedTask;
+    }
+
+    private record AlertEvent(string City, int Aqi, string Category, string Pollutant, DateTime Timestamp, string Color);
+
+    private enum AlertFilter { All, Unhealthy, VeryUnhealthy }
+}

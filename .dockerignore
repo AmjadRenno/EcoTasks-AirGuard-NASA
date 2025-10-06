@@ -1,0 +1,37 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/out/
+
+# User-specific files
+**/*.user
+**/*.userosettings
+**/.vs/
+**/.vscode/
+
+# Test results
+**/TestResults/
+
+# NuGet packages
+**/*.nupkg
+
+# Node modules (if any)
+**/node_modules/
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README.md
+LICENSE
+
+# Docker files
+**/.dockerignore
+**/docker-compose*.yml
+
+# Environment files
+**/.env
+**/.env.*
